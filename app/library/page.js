@@ -430,6 +430,12 @@ export default function LibraryPage() {
 
     loadMovies();
 
+    // Check pCloud periodically so files deleted directly in pCloud
+    // disappear from the WatchTogether library automatically.
+    const syncTimer = setInterval(() => {
+      loadMovies();
+    }, 15000);
+
     /*
      * Recover a movie if the browser was interrupted
      * after pCloud upload but before DB save.
@@ -468,6 +474,8 @@ export default function LibraryPage() {
         error
       );
     }
+
+    return () => clearInterval(syncTimer);
   }, [user]);
 
   /* =======================================================
@@ -943,11 +951,25 @@ export default function LibraryPage() {
                     className="p-5 rounded-xl bg-neutral-900 border border-neutral-800 flex flex-col gap-3"
                   >
 
-                    <div className="aspect-video rounded-lg bg-neutral-950 flex items-center justify-center text-neutral-700 text-3xl">
-                      🎬
+                    <div className="aspect-video rounded-lg bg-neutral-950 overflow-hidden border border-neutral-800">
+                      {movie.video_url ? (
+                        <video
+                          className="w-full h-full object-contain bg-black"
+                          controls
+                          preload="metadata"
+                          playsInline
+                          src={movie.video_url}
+                        >
+                          Your browser does not support video playback.
+                        </video>
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-neutral-700 text-3xl">
+                          🎬
+                        </div>
+                      )}
                     </div>
 
-                    <p className="font-medium truncate">
+                    <p className="font-medium truncate" title={movie.title}>
                       {
                         movie.title
                       }

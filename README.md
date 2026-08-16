@@ -40,3 +40,7 @@ npm run dev
 Then open `http://localhost:3000`.
 
 Only upload or share content you own or have permission to share.
+
+## v6 pCloud temporary-folder cleanup
+
+v6 keeps the working v4 pCloud File Request upload flow and does not introduce the authenticated `createuploadlink` flow from v5. After an upload is finalized, the video is moved into the logged-in user's permanent pCloud folder and an empty temporary folder named like `Files from <user> on <date>` is removed. Non-empty or unrelated folders are never deleted.

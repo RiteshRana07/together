@@ -7,4 +7,3 @@ public/uploads/*
 .env
 .env.local
 .vercel
-.env.example

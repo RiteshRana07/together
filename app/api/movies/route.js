@@ -6,12 +6,14 @@ const { verifyToken } = require("../../../lib/auth");
 const {
   createMovie,
   listMoviesForUser,
+  deleteMovie,
 } = require("../../../lib/db");
 
 const {
   isPCloudRef,
   signDownload,
   getMetadataFromRef,
+  isPCloudFileMissingError,
 } = require("../../../lib/pcloud");
 
 export const runtime = "nodejs";
@@ -45,6 +47,48 @@ function requireUser() {
    Convert stored pCloud reference
    into playable URL
 ---------------------------------------- */
+
+async function reconcileExternalPCloudDeletes(movies, ownerId) {
+  const validMovies = [];
+
+  for (const movie of movies) {
+    if (!isPCloudRef(movie.video_url)) {
+      validMovies.push(movie);
+      continue;
+    }
+
+    try {
+      await getMetadataFromRef(movie.video_url);
+      validMovies.push(movie);
+    } catch (error) {
+      if (isPCloudFileMissingError(error)) {
+        console.log(
+          "[movies GET] pCloud file was deleted externally; removing movie from library:",
+          movie.id
+        );
+        try {
+          await deleteMovie(movie.id, ownerId);
+        } catch (dbError) {
+          console.error(
+            "[movies GET] failed to remove stale movie from database:",
+            dbError
+          );
+        }
+        continue;
+      }
+
+      // Do not remove a movie for transient pCloud/network/auth failures.
+      console.error(
+        "[movies GET] pCloud verification failed; keeping movie:",
+        movie.id,
+        error?.message || error
+      );
+      validMovies.push(movie);
+    }
+  }
+
+  return validMovies;
+}
 
 async function withPlayableUrl(movie) {
   if (!movie) {
@@ -101,8 +145,15 @@ export async function GET() {
       payload.userId
     );
 
+    // pCloud can be changed outside WatchTogether. Verify each stored pCloud
+    // reference so an externally deleted video disappears from the library.
+    const currentMovies = await reconcileExternalPCloudDeletes(
+      movies,
+      payload.userId
+    );
+
     const playableMovies = await Promise.all(
-      movies.map(withPlayableUrl)
+      currentMovies.map(withPlayableUrl)
     );
 
     return NextResponse.json({

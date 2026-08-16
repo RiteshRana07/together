@@ -7,6 +7,8 @@ const {
   findFileRecursive,
   moveFile,
   storageRef,
+  filenameFromTitle,
+  cleanupTemporaryUploadFolder,
 } = require("../../../../../lib/pcloud");
 
 export const runtime = "nodejs";
@@ -78,13 +80,28 @@ export async function POST(request) {
       user.username
     );
 
-    const moved = await moveFile(
-      uploaded.fileid,
-      userFolder.folderId,
+    // Use the title entered in the Library as the pCloud filename.
+    // Preserve the original video's extension so playback remains reliable.
+    const finalFilename = filenameFromTitle(
+      title,
       originalFilename || uploaded.name
     );
 
+    const moved = await moveFile(
+      uploaded.fileid,
+      userFolder.folderId,
+      finalFilename
+    );
+
     const finalFileId = moved?.fileid || uploaded.fileid;
+
+    // Remove the empty pCloud File Request folder created by the
+    // existing v4 upload-link flow. The folder is deleted only when
+    // it matches pCloud's temporary naming pattern and is empty.
+    await cleanupTemporaryUploadFolder(
+      uploaded?.parentfolderid,
+      uploaded?.parentfoldername
+    );
 
     return NextResponse.json({
       ok: true,
@@ -97,7 +114,7 @@ export async function POST(request) {
         moved?.contenttype ||
         uploaded.contenttype ||
         "",
-      name: moved?.name || originalFilename || uploaded.name,
+      name: moved?.name || finalFilename,
       title,
     });
   } catch (error) {
