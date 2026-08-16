@@ -103,6 +103,9 @@ async function withPlayableUrl(movie) {
 
       return {
         ...movie,
+        // Keep the canonical pCloud reference available so clients can
+        // refresh an expired playback URL without changing the DB value.
+        storage_ref: movie.video_url,
         video_url: playableUrl,
       };
     }

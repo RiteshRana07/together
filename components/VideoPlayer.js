@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 const DRIFT_TOLERANCE = 0.8;
 const REMOTE_GUARD_MS = 1200;
 
-export default function VideoPlayer({ videoUrl, channel, broadcast, canControl }) {
+export default function VideoPlayer({ videoUrl, channel, broadcast, canControl, onPlaybackError }) {
   const videoRef = useRef(null);
   const remoteGuardUntil = useRef(0);
   const buffering = useRef(false);
@@ -108,9 +108,13 @@ export default function VideoPlayer({ videoUrl, channel, broadcast, canControl }
         src={videoUrl}
         controls
         playsInline
+        referrerPolicy="no-referrer"
         preload="metadata"
         className="w-full aspect-video"
         onWaiting={() => { buffering.current = true; }}
+        onError={() => {
+          onPlaybackError?.();
+        }}
         onPlaying={() => {
           buffering.current = false;
           if (Date.now() >= remoteGuardUntil.current) { intendedPlaying.current = true; emit("play"); }

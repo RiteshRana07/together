@@ -163,6 +163,20 @@ export default function RoomPage({ params }) {
     }).catch(() => {});
   }, [code, socketId]);
 
+
+  const refreshRoomPlayback = useCallback(async () => {
+    try {
+      // Re-fetch the room so the server signs a fresh pCloud URL for this
+      // room member. This also works for guests who do not own the movie.
+      const res = await fetch(`/api/rooms/${code}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok || !data.room) return;
+      setRoom(data.room);
+    } catch (error) {
+      console.error("[room] playback URL refresh failed:", error);
+    }
+  }, [code]);
+
   function grantControl(userId, grant) {
     setControllers((prev) => {
       const next = new Set(prev);
@@ -248,7 +262,7 @@ export default function RoomPage({ params }) {
         ) : (
           <>
             <div className="grid lg:grid-cols-[1fr_320px] gap-6">
-              {currentVideoSource === "youtube" ? <YouTubePlayer videoId={currentVideoUrl} channel={channel} broadcast={broadcast} canControl={myCanControl} /> : <VideoPlayer videoUrl={currentVideoUrl} channel={channel} broadcast={broadcast} canControl={myCanControl} />}
+              {currentVideoSource === "youtube" ? <YouTubePlayer videoId={currentVideoUrl} channel={channel} broadcast={broadcast} canControl={myCanControl} /> : <VideoPlayer videoUrl={currentVideoUrl} channel={channel} broadcast={broadcast} canControl={myCanControl} onPlaybackError={refreshRoomPlayback} />}
               <div className="h-[520px]"><Chat channel={channel} broadcast={broadcast} username={user.username} userId={user.id} participants={participants} isHost={isHost} controllers={controllers} onGrantControl={grantControl} onAddToQueue={addToQueue} /></div>
             </div>
             <Queue code={code} channel={channel} isHost={isHost} />

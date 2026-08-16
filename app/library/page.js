@@ -319,41 +319,39 @@ export default function LibraryPage() {
      LOAD MOVIES
   ======================================================= */
 
-  async function loadMovies() {
+  async function loadMovies({ preservePlaybackUrls = true } = {}) {
     try {
-      const response =
-        await fetch(
-          "/api/movies",
-          {
-            cache:
-              "no-store",
+      const response = await fetch("/api/movies", {
+        cache: "no-store",
+        credentials: "include",
+      });
 
-            credentials:
-              "include",
-          }
-        );
-
-      const data =
-        await response.json();
-
-      if (
-        response.ok
-      ) {
-        setMovies(
-          data.movies ||
-          []
-        );
-      } else {
-        console.error(
-          "Failed to load movies:",
-          data.error
-        );
+      const data = await response.json();
+      if (!response.ok) {
+        console.error("Failed to load movies:", data.error);
+        return;
       }
+
+      const incoming = data.movies || [];
+
+      setMovies((previous) => {
+        if (!preservePlaybackUrls || !Array.isArray(previous)) {
+          return incoming;
+        }
+
+        const previousById = new Map(previous.map((m) => [String(m.id), m]));
+        return incoming.map((movie) => {
+          const old = previousById.get(String(movie.id));
+          // Do not replace a currently playing signed URL during a background
+          // pCloud existence check. Replacing src makes <video> reload.
+          if (old?.video_url && old.video_url !== movie.storage_ref && movie.storage_ref) {
+            return { ...movie, video_url: old.video_url };
+          }
+          return movie;
+        });
+      });
     } catch (error) {
-      console.error(
-        "Failed to load movies:",
-        error
-      );
+      console.error("Failed to load movies:", error);
     }
   }
 
@@ -420,63 +418,66 @@ export default function LibraryPage() {
   }
 
   /* =======================================================
-     INITIAL LOAD
+     INITIAL LOAD + QUIET BACKGROUND SYNC
   ======================================================= */
 
   useEffect(() => {
-    if (!user) {
-      return;
-    }
+    if (!user) return;
 
-    loadMovies();
+    loadMovies({ preservePlaybackUrls: false });
 
-    // Check pCloud periodically so files deleted directly in pCloud
-    // disappear from the WatchTogether library automatically.
+    // Keep external pCloud deletion detection, but do not refresh the video
+    // element's src. The merge logic above preserves existing playback URLs.
     const syncTimer = setInterval(() => {
-      loadMovies();
-    }, 15000);
+      loadMovies({ preservePlaybackUrls: true });
+    }, 60000);
 
-    /*
-     * Recover a movie if the browser was interrupted
-     * after pCloud upload but before DB save.
-     */
+    const onFocus = () => loadMovies({ preservePlaybackUrls: true });
+    window.addEventListener("focus", onFocus);
+
     try {
-      const pending =
-        JSON.parse(
-          localStorage.getItem(
-            "wt_pending_movie"
-          ) || "null"
-        );
-
-      if (
-        pending?.title &&
-        pending?.storageRef
-      ) {
-        saveMovie(
-          pending.title,
-          pending.storageRef
-        )
+      const pending = JSON.parse(localStorage.getItem("wt_pending_movie") || "null");
+      if (pending?.title && pending?.storageRef) {
+        saveMovie(pending.title, pending.storageRef)
           .then(() => {
-            localStorage.removeItem(
-              "wt_pending_movie"
-            );
+            localStorage.removeItem("wt_pending_movie");
+            return loadMovies({ preservePlaybackUrls: true });
           })
-          .then(
-            loadMovies
-          )
-          .catch(
-            console.error
-          );
+          .catch(console.error);
       }
     } catch (error) {
-      console.error(
-        "Pending movie recovery failed:",
-        error
-      );
+      console.error("Pending movie recovery failed:", error);
     }
 
-    return () => clearInterval(syncTimer);
+    return () => {
+      clearInterval(syncTimer);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [user]);
+
+  async function refreshMoviePlayback(movieId) {
+    try {
+      const response = await fetch("/api/storage/download-url", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ movieId }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.url) {
+        throw new Error(data.error || "Couldn't refresh the video link.");
+      }
+      setMovies((previous) => (previous || []).map((movie) =>
+        String(movie.id) === String(movieId)
+          ? { ...movie, video_url: data.url }
+          : movie
+      ));
+      return data.url;
+    } catch (error) {
+      console.error("[library] playback URL refresh failed:", error);
+      return null;
+    }
+  }
 
   /* =======================================================
      RESET
@@ -958,7 +959,16 @@ export default function LibraryPage() {
                           controls
                           preload="metadata"
                           playsInline
+                          referrerPolicy="no-referrer"
                           src={movie.video_url}
+                          onError={async (event) => {
+                            // A signed pCloud link can expire. Refresh it once
+                            // instead of repeatedly changing the source.
+                            if (event.currentTarget.dataset.retry === "1") return;
+                            event.currentTarget.dataset.retry = "1";
+                            const freshUrl = await refreshMoviePlayback(movie.id);
+                            if (freshUrl) event.currentTarget.src = freshUrl;
+                          }}
                         >
                           Your browser does not support video playback.
                         </video>
