@@ -38,7 +38,7 @@ export default function YouTubePlayer({ videoId, channel, broadcast, canControl 
       if (destroyed || !containerRef.current || playerRef.current) return;
       playerRef.current = new window.YT.Player(containerRef.current, {
         videoId,
-        playerVars: { rel: 0, modestbranding: 1, playsinline: 1, iv_load_policy: 3 },
+        playerVars: { rel: 0, modestbranding: 1, playsinline: 1, iv_load_policy: 3, controls: canControlRef.current ? 1 : 0, disablekb: canControlRef.current ? 0 : 1 },
         events: {
           onReady: () => {
             ready.current = true;
@@ -148,6 +148,7 @@ export default function YouTubePlayer({ videoId, channel, broadcast, canControl 
   return (
     <div className="relative rounded-xl overflow-hidden bg-black aspect-video shadow-2xl shadow-black/50">
       <div ref={containerRef} className="w-full h-full" />
+      {!canControl && <div className="absolute inset-0 z-10" aria-label="Only the host can control playback" />}
       {!canControl && (
         <div className="absolute top-3 right-3 px-3 py-1.5 rounded-full bg-black/70 backdrop-blur text-xs text-neutral-300 pointer-events-none">
           🔒 Host controls playback

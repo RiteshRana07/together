@@ -12,8 +12,6 @@ export default function Chat({
   userId,
   participants,
   isHost,
-  controllers,
-  onGrantControl,
   onAddToQueue,
 }) {
   const [messages, setMessages] = useState([]);
@@ -89,34 +87,23 @@ export default function Chat({
 
       {showParticipants && (
         <div className="px-4 py-2 border-b border-neutral-800 space-y-1.5 max-h-40 overflow-y-auto">
-          {participants.map((p) => {
-            const canControl = p.isHost || controllers?.has(p.id);
-            return (
-              <div key={p.id} className="flex items-center justify-between text-xs">
-                <span className="flex items-center gap-1.5">
-                  {p.username}
-                  {p.isHost && (
-                    <span className="text-[9px] uppercase bg-accent/20 text-accent px-1.5 py-0.5 rounded-full">
-                      Host
-                    </span>
-                  )}
-                  {!p.isHost && canControl && (
-                    <span className="text-[9px] uppercase bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded-full">
-                      Co-host
-                    </span>
-                  )}
-                </span>
-                {isHost && !p.isHost && p.id !== userId && (
-                  <button
-                    onClick={() => onGrantControl?.(p.id, !canControl)}
-                    className="text-accent hover:underline"
-                  >
-                    {canControl ? "Remove co-host" : "Make co-host"}
-                  </button>
+          {participants.map((p) => (
+            <div key={p.id} className="flex items-center justify-between text-xs">
+              <span className="flex items-center gap-1.5">
+                {p.username}
+                {p.isHost && (
+                  <span className="text-[9px] uppercase bg-accent/20 text-accent px-1.5 py-0.5 rounded-full">
+                    Host
+                  </span>
                 )}
-              </div>
-            );
-          })}
+              </span>
+              {!p.isHost && (
+                <span className="text-[9px] uppercase bg-neutral-800 text-neutral-500 px-1.5 py-0.5 rounded-full">
+                  Viewer
+                </span>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

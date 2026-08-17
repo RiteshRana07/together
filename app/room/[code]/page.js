@@ -19,7 +19,6 @@ export default function RoomPage({ params }) {
   const [channel, setChannel] = useState(null);
   const [socketId, setSocketId] = useState(null);
   const [participants, setParticipants] = useState([]);
-  const [controllers, setControllers] = useState(new Set());
   const [copied, setCopied] = useState(false);
   const [joinError, setJoinError] = useState("");
   const [joinState, setJoinState] = useState("checking");
@@ -51,10 +50,6 @@ export default function RoomPage({ params }) {
   useEffect(() => {
     if (room) setCapacityInput(String(room.max_participants || ""));
   }, [room?.max_participants]);
-
-  useEffect(() => {
-    if (isHost && user) setControllers((prev) => new Set(prev).add(user.id));
-  }, [isHost, user]);
 
   // Check capacity before showing the video. The Pusher auth route performs
   // the final atomic seat reservation, so simultaneous joins cannot overfill.
@@ -109,24 +104,11 @@ export default function RoomPage({ params }) {
     });
     ch.bind("pusher:member_removed", (member) => {
       setParticipants((p) => p.filter((x) => x.id !== member.id));
-      setControllers((prev) => {
-        const next = new Set(prev);
-        next.delete(member.id);
-        return next;
-      });
     });
     ch.bind("pusher:subscription_error", (status) => {
       console.error("Pusher subscription error:", status);
       setJoinState("denied");
       setJoinError(status?.status === 403 || status === 403 ? "This room is full." : "Couldn't connect to the room's live sync. Try refreshing.");
-    });
-
-    ch.bind("room:grant-control", ({ userId, grant }) => {
-      setControllers((prev) => {
-        const next = new Set(prev);
-        if (grant) next.add(userId); else next.delete(userId);
-        return next;
-      });
     });
 
     ch.bind("room:video-changed", ({ videoUrl, videoTitle, videoSource }) => {
@@ -177,15 +159,6 @@ export default function RoomPage({ params }) {
     }
   }, [code]);
 
-  function grantControl(userId, grant) {
-    setControllers((prev) => {
-      const next = new Set(prev);
-      if (grant) next.add(userId); else next.delete(userId);
-      return next;
-    });
-    broadcast("room:grant-control", { userId, grant });
-  }
-
   async function updateCapacity(value) {
     const n = Number(value);
     if (!Number.isInteger(n) || n < 1 || n > 500) {
@@ -215,7 +188,7 @@ export default function RoomPage({ params }) {
     return <main><Nav username={user?.username} /><div className="max-w-lg mx-auto px-6 py-24 text-center"><h1 className="text-xl font-semibold mb-2">Room not found</h1><p className="text-neutral-500 text-sm mb-6">Double-check the room code and try again.</p><Link href="/rooms" className="text-accent text-sm hover:underline">← Back to rooms</Link></div></main>;
   }
 
-  const myCanControl = isHost || (user && controllers.has(user.id));
+  const myCanControl = isHost;
   const currentVideoUrl = room.playable_current_video_url || room.playable_video_url || room.current_video_url || room.video_url;
   const currentVideoTitle = room.current_video_title || room.video_title;
   const currentVideoSource = room.current_video_source || room.video_source;
@@ -263,9 +236,22 @@ export default function RoomPage({ params }) {
           <>
             <div className="grid lg:grid-cols-[1fr_320px] gap-6">
               {currentVideoSource === "youtube" ? <YouTubePlayer videoId={currentVideoUrl} channel={channel} broadcast={broadcast} canControl={myCanControl} /> : <VideoPlayer videoUrl={currentVideoUrl} channel={channel} broadcast={broadcast} canControl={myCanControl} onPlaybackError={refreshRoomPlayback} />}
-              <div className="h-[520px]"><Chat channel={channel} broadcast={broadcast} username={user.username} userId={user.id} participants={participants} isHost={isHost} controllers={controllers} onGrantControl={grantControl} onAddToQueue={addToQueue} /></div>
+              <div className="h-[520px]"><Chat channel={channel} broadcast={broadcast} username={user.username} userId={user.id} participants={participants} isHost={isHost} onAddToQueue={addToQueue} /></div>
             </div>
-            <Queue code={code} channel={channel} isHost={isHost} />
+            <Queue
+              code={code}
+              channel={channel}
+              isHost={isHost}
+              currentVideoTitle={currentVideoTitle}
+              currentVideoUrl={currentVideoUrl}
+              originalVideoTitle={room.original_video_title || room.video_title}
+              originalVideoUrl={room.original_video_url || room.video_url}
+              onPlayOriginal={async () => {
+                const res = await fetch(`/api/rooms/${code}/queue/original`, { method: "POST" });
+                const data = await res.json();
+                if (!res.ok) alert(data.error || "Couldn't play the original video");
+              }}
+            />
           </>
         )}
       </div>

@@ -65,7 +65,7 @@ export async function DELETE(req, { params }) {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "Missing queue item id" }, { status: 400 });
-  const item = await removeRoomQueueItem(id, user.userId);
+  const item = await removeRoomQueueItem(id, user.userId, params.code);
   if (!item) return NextResponse.json({ error: "Queue item not found" }, { status: 404 });
   await pusher.trigger(`presence-room-${params.code.toUpperCase()}`, "room:queue-changed", {});
   return NextResponse.json({ ok: true });

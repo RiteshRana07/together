@@ -106,7 +106,7 @@ export default function VideoPlayer({ videoUrl, channel, broadcast, canControl, 
       <video
         ref={videoRef}
         src={videoUrl}
-        controls
+        controls={canControl}
         playsInline
         referrerPolicy="no-referrer"
         preload="metadata"
