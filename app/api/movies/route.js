@@ -99,7 +99,7 @@ async function withPlayableUrl(movie) {
     const videoUrl = movie.video_url;
 
     if (isPCloudRef(videoUrl)) {
-      const playableUrl = await signDownload(videoUrl);
+      const playableUrl = `/api/storage/stream?movieId=${encodeURIComponent(movie.id)}`;
 
       return {
         ...movie,

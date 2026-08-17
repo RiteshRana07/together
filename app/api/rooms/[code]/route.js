@@ -15,17 +15,17 @@ function parseCapacity(value) {
   return Number.isInteger(n) && n >= 1 && n <= 500 ? n : null;
 }
 
-async function playable(value) {
-  return isPCloudRef(value) ? signDownload(value) : value;
+async function playable(value, roomCode) {
+  return isPCloudRef(value) ? `/api/storage/stream?room=${encodeURIComponent(roomCode)}` : value;
 }
 
 async function serializeRoom(room, canPlay) {
   if (!room || !canPlay) return room;
   return {
     ...room,
-    playable_video_url: await playable(room.video_url),
-    playable_current_video_url: await playable(room.current_video_url || room.video_url),
-    playable_original_video_url: await playable(room.original_video_url || room.video_url),
+    playable_video_url: await playable(room.video_url, room.code),
+    playable_current_video_url: await playable(room.current_video_url || room.video_url, room.code),
+    playable_original_video_url: await playable(room.original_video_url || room.video_url, room.code),
   };
 }
 

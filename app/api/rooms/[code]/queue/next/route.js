@@ -17,8 +17,8 @@ export async function POST(req, { params }) {
   const room = result.room;
   const rawVideoUrl = room.current_video_url || room.video_url;
   const rawOriginalUrl = room.original_video_url || room.video_url;
-  const playableVideoUrl = isPCloudRef(rawVideoUrl) ? await signDownload(rawVideoUrl) : rawVideoUrl;
-  const playableOriginalUrl = isPCloudRef(rawOriginalUrl) ? await signDownload(rawOriginalUrl) : rawOriginalUrl;
+  const playableVideoUrl = isPCloudRef(rawVideoUrl) ? `/api/storage/stream?room=${encodeURIComponent(code)}` : rawVideoUrl;
+  const playableOriginalUrl = isPCloudRef(rawOriginalUrl) ? `/api/storage/stream?room=${encodeURIComponent(code)}` : rawOriginalUrl;
   await pusher.trigger(`presence-room-${code}`, "room:video-changed", {
     videoUrl: playableVideoUrl,
     videoTitle: room.current_video_title || room.video_title,

@@ -39,7 +39,7 @@ export async function GET(req, { params }) {
   const queue = await listRoomQueue(code);
   const playableQueue = await Promise.all(queue.map(async (item) => ({
     ...item,
-    playable_video_url: isPCloudRef(item.video_url) ? await signDownload(item.video_url) : item.video_url,
+    playable_video_url: isPCloudRef(item.video_url) ? `/api/storage/stream?room=${encodeURIComponent(code)}` : item.video_url,
   })));
   return NextResponse.json({ queue: playableQueue });
 }
