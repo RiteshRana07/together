@@ -4,19 +4,58 @@ import { useEffect, useRef, useState } from "react";
 const DRIFT_TOLERANCE = 0.8;
 const REMOTE_GUARD_MS = 1200;
 
-export default function VideoPlayer({ videoUrl, channel, broadcast, canControl, onPlaybackError }) {
+export default function VideoPlayer({ videoUrl, channel, broadcast, canControl, onPlaybackError, autoplayOnSourceChange = false }) {
   const videoRef = useRef(null);
   const remoteGuardUntil = useRef(0);
   const buffering = useRef(false);
   const intendedPlaying = useRef(false);
+  const sourceChanging = useRef(false);
   const [reactions, setReactions] = useState([]);
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || !videoUrl) return;
+
+    let cancelled = false;
+    sourceChanging.current = true;
+    // Source switches must never emit a local pause/seek event. The previous
+    // implementation called pause() here, which fired onPause and broadcast a
+    // pause to the room while the host was trying to switch to a queue item.
+    remoteGuardUntil.current = Date.now() + 1800;
     video.pause();
+    video.src = videoUrl;
     video.load();
-  }, [videoUrl]);
+
+    if (!autoplayOnSourceChange) {
+      sourceChanging.current = false;
+      return () => { cancelled = true; };
+    }
+
+    const start = async () => {
+      if (cancelled || !videoRef.current) return;
+      try {
+        await videoRef.current.play();
+        if (!cancelled) intendedPlaying.current = true;
+      } catch {
+        // Browser autoplay policy can reject a programmatic play. The host can
+        // still use the native Play control; a later player:action will retry.
+      } finally {
+        if (!cancelled) sourceChanging.current = false;
+      }
+    };
+
+    if (video.readyState >= 2) {
+      start();
+    } else {
+      video.addEventListener("canplay", start, { once: true });
+    }
+
+    return () => {
+      cancelled = true;
+      video.removeEventListener("canplay", start);
+      sourceChanging.current = false;
+    };
+  }, [videoUrl, autoplayOnSourceChange]);
 
   function markRemote() {
     remoteGuardUntil.current = Date.now() + REMOTE_GUARD_MS;
@@ -117,15 +156,17 @@ export default function VideoPlayer({ videoUrl, channel, broadcast, canControl, 
         }}
         onPlaying={() => {
           buffering.current = false;
-          if (Date.now() >= remoteGuardUntil.current) { intendedPlaying.current = true; emit("play"); }
+          if (sourceChanging.current || Date.now() < remoteGuardUntil.current) return;
+          intendedPlaying.current = true;
+          emit("play");
         }}
         onPause={() => {
-          if (buffering.current || Date.now() < remoteGuardUntil.current) return;
+          if (sourceChanging.current || buffering.current || Date.now() < remoteGuardUntil.current) return;
           intendedPlaying.current = false;
           emit("pause");
         }}
         onSeeked={() => {
-          if (Date.now() < remoteGuardUntil.current) return;
+          if (sourceChanging.current || Date.now() < remoteGuardUntil.current) return;
           emit("seek");
         }}
       />

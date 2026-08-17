@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 
-export default function Queue({ code, channel, isHost, currentVideoTitle, currentVideoUrl, originalVideoTitle, originalVideoUrl, onPlayOriginal }) {
+export default function Queue({ code, channel, isHost, currentVideoTitle, currentVideoUrl, originalVideoTitle, originalVideoUrl, onPlayOriginal, onVideoChange }) {
   const [queue, setQueue] = useState([]);
   const [busyId, setBusyId] = useState(null);
 
@@ -32,7 +32,18 @@ export default function Queue({ code, channel, isHost, currentVideoTitle, curren
       });
       const data = await res.json();
       if (!res.ok) alert(data.error || "Couldn't play this queued video");
-      else await loadQueue();
+      else {
+        await loadQueue();
+        if (data.playableVideoUrl || data.room) {
+          onVideoChange?.({
+            videoUrl: data.playableVideoUrl,
+            videoRef: data.videoRef || data.item?.video_url || data.room?.current_video_url || data.room?.video_url,
+            videoTitle: data.room?.current_video_title || data.room?.video_title,
+            videoSource: data.room?.current_video_source || data.room?.video_source,
+            autoplay: true,
+          });
+        }
+      }
     } finally {
       setBusyId(null);
     }

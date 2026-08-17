@@ -24,6 +24,11 @@ export default function RoomPage({ params }) {
   const [joinState, setJoinState] = useState("checking");
   const [connectReady, setConnectReady] = useState(false);
   const [capacityInput, setCapacityInput] = useState("");
+  const [autoplayCurrentVideo, setAutoplayCurrentVideo] = useState(false);
+  // Keep playback URL separate from the canonical DB room state. The DB stores
+  // pCloud refs; the player uses a same-origin stream URL. Mixing those two
+  // values was the main cause of queue switches getting stuck until rejoin.
+  const [playback, setPlayback] = useState({ url: "", title: "", source: "", ref: "", version: 0 });
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -38,12 +43,31 @@ export default function RoomPage({ params }) {
       .catch(() => setJoinError("Couldn't verify your account."));
   }, [router, code]);
 
+  const toPlayableRoomState = useCallback((r) => {
+    if (!r) return { url: "", title: "", source: "", ref: "" };
+    const ref = r.current_video_url || r.video_url || "";
+    const url = r.playable_current_video_url || r.playable_video_url || ref;
+    return {
+      url,
+      title: r.current_video_title || r.video_title || "",
+      source: r.current_video_source || r.video_source || "",
+      ref,
+    };
+  }, []);
+
   useEffect(() => {
     fetch(`/api/rooms/${code}`)
       .then((r) => r.json())
-      .then((d) => setRoom(d.room || null))
+      .then((d) => {
+        const nextRoom = d.room || null;
+        setRoom(nextRoom);
+        if (nextRoom) {
+          const p = toPlayableRoomState(nextRoom);
+          setPlayback((prev) => ({ ...p, version: prev.version + 1 }));
+        }
+      })
       .catch(() => setRoom(null));
-  }, [code]);
+  }, [code, toPlayableRoomState]);
 
   const isHost = !!(user && room && user.id === room.host_id);
 
@@ -111,8 +135,18 @@ export default function RoomPage({ params }) {
       setJoinError(status?.status === 403 || status === 403 ? "This room is full." : "Couldn't connect to the room's live sync. Try refreshing.");
     });
 
-    ch.bind("room:video-changed", ({ videoUrl, videoTitle, videoSource }) => {
-      setRoom((prev) => prev ? { ...prev, video_url: videoUrl, video_title: videoTitle, video_source: videoSource, current_video_url: videoUrl, current_video_title: videoTitle, current_video_source: videoSource } : prev);
+    ch.bind("room:video-changed", ({ videoUrl, videoTitle, videoSource, videoRef, autoplay }) => {
+      // Do NOT put the playable /api/storage/stream URL into the room DB-shaped
+      // state. Keep the canonical pCloud ref separately. This prevents a later
+      // queue/original switch from being compared against the wrong value.
+      setAutoplayCurrentVideo(!!autoplay);
+      setPlayback((prev) => ({
+        url: videoUrl || prev.url,
+        title: videoTitle || prev.title,
+        source: videoSource || prev.source,
+        ref: videoRef || prev.ref,
+        version: prev.version + 1,
+      }));
     });
 
     ch.bind("room:capacity-changed", ({ maxParticipants }) => {
@@ -148,16 +182,59 @@ export default function RoomPage({ params }) {
 
   const refreshRoomPlayback = useCallback(async () => {
     try {
-      // Re-fetch the room so the server signs a fresh pCloud URL for this
-      // room member. This also works for guests who do not own the movie.
       const res = await fetch(`/api/rooms/${code}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.room) return;
       setRoom(data.room);
+      const p = toPlayableRoomState(data.room);
+      setPlayback((prev) => {
+        if (prev.ref === p.ref && prev.url === p.url) return prev;
+        setAutoplayCurrentVideo(false);
+        return { ...p, version: prev.version + 1 };
+      });
     } catch (error) {
-      console.error("[room] playback URL refresh failed:", error);
+      console.error("[room] playback state refresh failed:", error);
     }
-  }, [code]);
+  }, [code, toPlayableRoomState]);
+
+  // Pusher is the fast path. This short poll is a recovery path for mobile
+  // browsers/background tabs where a realtime event can be missed. It compares
+  // the canonical pCloud reference, not the generated stream URL.
+  useEffect(() => {
+    if (joinState !== "joined" || !room) return;
+    let cancelled = false;
+    const sync = async () => {
+      try {
+        const res = await fetch(`/api/rooms/${code}`, { cache: "no-store" });
+        const data = await res.json();
+        if (cancelled || !res.ok || !data.room) return;
+        const p = toPlayableRoomState(data.room);
+        setRoom(data.room);
+        setPlayback((prev) => {
+          if (prev.ref === p.ref) return prev;
+          setAutoplayCurrentVideo(false);
+          return { ...p, version: prev.version + 1 };
+        });
+      } catch {}
+    };
+    const timer = setInterval(sync, 1500);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [joinState, room?.id, code, toPlayableRoomState]);
+
+  // Apply a host-selected queue/original video locally immediately. Pusher
+  // still updates every other participant, but the host must never have to
+  // leave/rejoin the room just to see the newly selected source.
+  const applyRoomVideo = useCallback(({ videoUrl, videoTitle, videoSource, videoRef, autoplay = false }) => {
+    if (!videoUrl) return;
+    setAutoplayCurrentVideo(!!autoplay);
+    setPlayback((prev) => ({
+      url: videoUrl,
+      title: videoTitle || prev.title,
+      source: videoSource || prev.source,
+      ref: videoRef || prev.ref,
+      version: prev.version + 1,
+    }));
+  }, []);
 
   async function updateCapacity(value) {
     const n = Number(value);
@@ -189,9 +266,9 @@ export default function RoomPage({ params }) {
   }
 
   const myCanControl = isHost;
-  const currentVideoUrl = room.playable_current_video_url || room.playable_video_url || room.current_video_url || room.video_url;
-  const currentVideoTitle = room.current_video_title || room.video_title;
-  const currentVideoSource = room.current_video_source || room.video_source;
+  const currentVideoUrl = playback.url || room.playable_current_video_url || room.playable_video_url || room.current_video_url || room.video_url;
+  const currentVideoTitle = playback.title || room.current_video_title || room.video_title;
+  const currentVideoSource = playback.source || room.current_video_source || room.video_source;
 
   return (
     <main>
@@ -235,7 +312,7 @@ export default function RoomPage({ params }) {
         ) : (
           <>
             <div className="grid lg:grid-cols-[1fr_320px] gap-6">
-              {currentVideoSource === "youtube" ? <YouTubePlayer videoId={currentVideoUrl} channel={channel} broadcast={broadcast} canControl={myCanControl} /> : <VideoPlayer videoUrl={currentVideoUrl} channel={channel} broadcast={broadcast} canControl={myCanControl} onPlaybackError={refreshRoomPlayback} />}
+              {currentVideoSource === "youtube" ? <YouTubePlayer key={`yt-${currentVideoUrl}`} videoId={currentVideoUrl} channel={channel} broadcast={broadcast} canControl={myCanControl} /> : <VideoPlayer videoUrl={currentVideoUrl} channel={channel} broadcast={broadcast} canControl={myCanControl} autoplayOnSourceChange={autoplayCurrentVideo} onPlaybackError={refreshRoomPlayback} />}
               <div className="h-[520px]"><Chat channel={channel} broadcast={broadcast} username={user.username} userId={user.id} participants={participants} isHost={isHost} onAddToQueue={addToQueue} /></div>
             </div>
             <Queue
@@ -249,8 +326,19 @@ export default function RoomPage({ params }) {
               onPlayOriginal={async () => {
                 const res = await fetch(`/api/rooms/${code}/queue/original`, { method: "POST" });
                 const data = await res.json();
-                if (!res.ok) alert(data.error || "Couldn't play the original video");
+                if (!res.ok) {
+                  alert(data.error || "Couldn't play the original video");
+                  return;
+                }
+                applyRoomVideo({
+                  videoUrl: data.playableVideoUrl,
+                  videoTitle: data.room?.original_video_title || data.room?.video_title,
+                  videoSource: data.room?.original_video_source || data.room?.video_source,
+                  videoRef: data.room?.original_video_url || data.room?.video_url,
+                  autoplay: true,
+                });
               }}
+              onVideoChange={applyRoomVideo}
             />
           </>
         )}

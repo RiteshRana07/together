@@ -22,10 +22,12 @@ export async function POST(req, { params }) {
 
   await pusher.trigger(`presence-room-${code}`, "room:video-changed", {
     videoUrl: playableVideoUrl,
+    videoRef: room.current_video_url || room.video_url,
     videoTitle: room.current_video_title || room.video_title,
     videoSource: room.current_video_source || room.video_source,
     originalVideoUrl: room.original_video_url,
+    autoplay: true,
   });
 
-  return NextResponse.json({ ok: true, room });
+  return NextResponse.json({ ok: true, room, playableVideoUrl, videoRef: room.current_video_url || room.video_url });
 }

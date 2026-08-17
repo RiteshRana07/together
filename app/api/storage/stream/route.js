@@ -35,7 +35,16 @@ async function resolveStorageRef(requestUrl) {
   if (roomCode) {
     const room = await getRoomByCode(roomCode.toUpperCase());
     if (!room) return { error: "Room not found", status: 404 };
-    const ref = room.current_video_url || room.video_url;
+
+    // When switching videos in a live room, the browser can request the new
+    // source before every client has re-read the room row. The v parameter is
+    // the exact pCloud reference selected by the host, so prefer it when it is
+    // a valid pCloud reference. This removes the old-source race completely.
+    const requestedRef = parsed.searchParams.get("v");
+    const ref = requestedRef && isPCloudRef(requestedRef)
+      ? requestedRef
+      : (room.current_video_url || room.video_url);
+
     if (!isPCloudRef(ref)) {
       return { error: "Room video is not a pCloud file", status: 400 };
     }

@@ -27,5 +27,5 @@ export async function POST(req, { params }) {
   });
   await pusher.trigger(`presence-room-${code}`, "room:queue-changed", {});
 
-  return NextResponse.json({ room, item: result.item });
+  return NextResponse.json({ room, item: result.item, playableVideoUrl });
 }
