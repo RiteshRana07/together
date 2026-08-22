@@ -1,127 +1,28 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect,useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Nav from "../../components/Nav";
 import { useCurrentUser } from "../../lib/use-current-user";
 
-export default function RoomsPage() {
-  const user = useCurrentUser();
-  const router = useRouter();
-  const [rooms, setRooms] = useState(undefined);
-  const [joinCode, setJoinCode] = useState("");
-  const [joinError, setJoinError] = useState("");
-
-  useEffect(() => {
-    if (!user) return;
-    fetch("/api/rooms")
-      .then((r) => r.json())
-      .then((d) => setRooms(d.rooms || []));
-  }, [user]);
-
-  async function handleJoin(e) {
-    e.preventDefault();
-    setJoinError("");
-    const code = joinCode.trim().toUpperCase();
-    if (!code) return setJoinError("Enter a room code");
-
-    const res = await fetch(`/api/rooms/${code}`);
-    if (!res.ok) return setJoinError("No room found with that code");
-    router.push(`/room/${code}`);
-  }
-
-  async function handleDelete(code) {
-    if (!confirm("Delete this room? This can't be undone.")) return;
-    await fetch(`/api/rooms/${code}`, { method: "DELETE" });
-    setRooms((prev) => prev.filter((r) => r.code !== code));
-  }
-
-  if (!user) return null;
-
-  return (
-    <main>
-      <Nav username={user.username} />
-      <div className="max-w-6xl mx-auto px-6 py-10">
-        <div className="flex items-start justify-between mb-8">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-accent mb-1">Watch together</p>
-            <h1 className="text-2xl font-bold mb-1">Private rooms</h1>
-            <p className="text-sm text-neutral-500">
-              Create a room from your library, invite friends, and watch together in perfect sync.
-            </p>
-          </div>
-          <Link
-            href="/rooms/create"
-            className="px-5 py-2.5 bg-accent rounded-lg font-medium hover:opacity-90 whitespace-nowrap"
-          >
-            + Create room
-          </Link>
-        </div>
-
-        <div className="grid lg:grid-cols-[1fr_340px] gap-8">
-          <section>
-            <h2 className="text-sm font-semibold text-neutral-300 mb-1">Your active rooms</h2>
-            <p className="text-xs text-neutral-500 mb-4">Rooms you host or have already joined.</p>
-
-            {rooms && rooms.length === 0 && (
-              <div className="text-center py-16 border border-dashed border-neutral-800 rounded-xl">
-                <p className="font-semibold mb-1">No active rooms</p>
-                <p className="text-sm text-neutral-500">
-                  Create a watch room from one of your ready movies, or join using an invitation code.
-                </p>
-              </div>
-            )}
-
-            {rooms && rooms.length > 0 && (
-              <div className="space-y-2">
-                {rooms.map((r) => (
-                  <div
-                    key={r.id}
-                    className="flex items-center justify-between p-4 rounded-lg bg-neutral-900 border border-neutral-800 hover:border-neutral-700"
-                  >
-                    <Link href={`/room/${r.code}`} className="flex-1">
-                      <p className="font-medium">{r.name}</p>
-                      {(r.original_video_title || r.video_title) && (
-                        <p className="text-xs text-neutral-500">{r.original_video_title || r.video_title}</p>
-                      )}
-                    </Link>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-neutral-500">Code: {r.code}</span>
-                      <button
-                        onClick={() => handleDelete(r.code)}
-                        className="text-xs text-neutral-600 hover:text-red-400"
-                        title="Delete room"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <aside className="p-6 rounded-xl bg-neutral-900 border border-neutral-800 h-fit">
-            <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Have an invitation?</p>
-            <h3 className="font-semibold mb-4">Join a private room</h3>
-            <form onSubmit={handleJoin} className="space-y-3">
-              <div>
-                <label className="text-xs text-neutral-500 block mb-1">Private room code</label>
-                <input
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-2 tracking-widest uppercase"
-                  placeholder="AB12CD"
-                  value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value)}
-                />
-              </div>
-              {joinError && <p className="text-sm text-red-400">{joinError}</p>}
-              <button className="w-full bg-neutral-100 text-neutral-900 rounded-lg py-2 font-medium hover:opacity-90">
-                Join private room
-              </button>
-            </form>
-          </aside>
-        </div>
-      </div>
-    </main>
-  );
+export default function RoomsPage(){
+ const user=useCurrentUser(); const router=useRouter(); const[rooms,setRooms]=useState(); const[code,setCode]=useState(''); const[error,setError]=useState('');
+ useEffect(()=>{if(user)fetch('/api/rooms').then(r=>r.json()).then(d=>setRooms(d.rooms||[])).catch(()=>setRooms([]))},[user]);
+ if(!user)return null;
+ async function join(e){e.preventDefault();const c=code.trim().toUpperCase();if(!c)return setError('Enter a room code');const r=await fetch(`/api/rooms/${c}`);if(!r.ok)return setError('No room found with that code');router.push(`/room/${c}`)}
+ async function del(c,isHost){
+  const label=isHost?'Delete this room for everyone?':'Remove this room from your Watch Rooms?';
+  if(!confirm(label))return;
+  const endpoint=isHost?`/api/rooms/${c}`:`/api/rooms/${c}/access`;
+  const r=await fetch(endpoint,{method:'DELETE'});
+  if(r.ok)setRooms(x=>x.filter(item=>item.code!==c));
+  else {const d=await r.json().catch(()=>({}));setError(d.error||'Could not remove the room');}
+ }
+ return <main className="wt-page cin-home"><Nav username={user.username}/><div className="wt-shell cin-shell">
+   <section className="cin-rooms-header"><div><p className="cin-eyebrow">WATCH TOGETHER</p><h1 className="cin-display cin-display-small">Private rooms.</h1><p className="cin-lead cin-lead-small">Create a room for your library, invite friends, and watch together in perfect sync.</p></div><div className="cin-room-actions"><Link href="/rooms" className="wt-button wt-button-ghost">◷ History</Link><Link href="/rooms/create" className="wt-button wt-button-primary">+ Create room</Link></div></section>
+   <section className="cin-room-layout"><div className="cin-room-main">
+    {rooms===undefined?<div className="cin-loading-grid">{[1,2].map(i=><div key={i} className="cin-loading-card"/> )}</div>:rooms.length===0?<div className="cin-empty"><span>◌</span><div><p>No private rooms yet.</p><small>Create your first screening to see it here.</small></div><Link href="/rooms/create" className="wt-button wt-button-primary">Create room →</Link></div>:<div className="cin-private-list">{rooms.map(r=><Link key={r.id} href={`/room/${r.code}`} className="cin-private-card"><div className="flex justify-between gap-4"><div><div className="flex items-center gap-2"><span className="cin-live-dot"/><span className="cin-room-status">ACTIVE</span></div><h2>{r.name}</h2><p>{r.original_video_title||r.video_title||'Untitled screening'} · {r.max_participants||5} seats</p></div><span className="cin-room-badge">{r.code}</span></div><div className="cin-private-footer"><span>Private screening</span><span onClick={(e)=>{e.preventDefault();e.stopPropagation();del(r.code,!!r.is_host)}} className="cin-delete">{r.is_host?'Delete':'Remove'}</span><span>Enter room →</span></div></Link>)}</div>}
+   </div><aside className="cin-join-card"><p className="cin-eyebrow">LIVE ON INVITATION</p><h2>Join a private room.</h2><p>Enter the invitation code from your host.</p><form onSubmit={join}><label>ROOM CODE</label><input value={code} onChange={e=>setCode(e.target.value.toUpperCase())} maxLength={12} placeholder="AB12CD34"/>{error&&<div className="cin-form-error">{error}</div>}<button className="wt-button wt-button-primary w-full">Join private room →</button></form></aside></section>
+   <section className="cin-section cin-rooms-how"><p className="cin-eyebrow">YOUR FIRST SCREENING</p><h2 className="cin-heading">Three steps to your first screening.</h2><p className="cin-muted mt-2">Two of them are “click a button.”</p><div className="cin-steps-grid mt-7"><div className="cin-step"><span>01</span><div><h3>Bring a file, or bring a link</h3><p>Choose a library video or use YouTube, Google Drive or a supported browser-playable URL.</p></div></div><div className="cin-step"><span>02</span><div><h3>Open a room, invite your people</h3><p>Share one private invite link and control the room size from the host panel.</p></div></div><div className="cin-step"><span>03</span><div><h3>Press play, stay together</h3><p>Playback, queue changes, chat and reactions travel through the room in real time.</p></div></div></div></section>
+ </div></main>
 }

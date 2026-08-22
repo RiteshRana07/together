@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 const { verifyToken } = require("../../../../../../lib/auth");
-const { playNextRoomQueueItem } = require("../../../../../../lib/db");
+const { playNextRoomQueueItem, updateRoomPlaybackState } = require("../../../../../../lib/db");
 const { isPCloudRef, signDownload } = require("../../../../../../lib/pcloud");
 const pusher = require("../../../../../../lib/pusher");
 
@@ -15,6 +15,7 @@ export async function POST(req, { params }) {
   if (result.error) return NextResponse.json({ error: result.error }, { status: 400 });
 
   const room = result.room;
+  await updateRoomPlaybackState(code, user.userId, { time: 0, playing: true });
   const rawVideoUrl = room.current_video_url || room.video_url;
   const rawOriginalUrl = room.original_video_url || room.video_url;
   const playableVideoUrl = isPCloudRef(rawVideoUrl) ? `/api/storage/stream?room=${encodeURIComponent(code)}&v=${encodeURIComponent(rawVideoUrl)}` : rawVideoUrl;

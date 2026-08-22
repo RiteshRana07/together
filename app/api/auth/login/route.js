@@ -9,6 +9,9 @@ export async function POST(req) {
   if (!user || !(await verifyPassword(password, user.password_hash))) {
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
+  if (!user.email_verified) {
+    return NextResponse.json({ error: "Please verify your email before signing in.", verificationRequired: true, email: user.email }, { status: 403 });
+  }
 
   const token = signToken({ userId: user.id, username: user.username });
   const res = NextResponse.json({

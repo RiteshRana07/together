@@ -1,0 +1,7 @@
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+const { verifyToken } = require("../../../../../lib/auth");
+const { getRoomByCode, createRoomSignal, listRoomSignals } = require("../../../../../lib/db");
+function getUser(){const token=cookies().get("wt_session")?.value;return token&&verifyToken(token);}
+export async function GET(req,{params}){const user=getUser();if(!user)return NextResponse.json({error:"Not signed in"},{status:401});const code=params.code.toUpperCase();const room=await getRoomByCode(code);if(!room)return NextResponse.json({error:"Room not found"},{status:404});const since=Number(new URL(req.url).searchParams.get("since")||0);return NextResponse.json({signals:await listRoomSignals(code,user.userId,since)});}
+export async function POST(req,{params}){const user=getUser();if(!user)return NextResponse.json({error:"Not signed in"},{status:401});const code=params.code.toUpperCase();const room=await getRoomByCode(code);if(!room)return NextResponse.json({error:"Room not found"},{status:404});const body=await req.json().catch(()=>({}));const to=String(body.to||"");if(!to||to===String(user.userId))return NextResponse.json({error:"Invalid signal target"},{status:400});const id=await createRoomSignal(code,user.userId,to,{description:body.description||null,candidate:body.candidate||null});if(!id)return NextResponse.json({error:"You are not an active room member"},{status:403});return NextResponse.json({ok:true,id});}

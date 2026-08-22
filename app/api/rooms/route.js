@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 const { verifyToken } = require("../../../lib/auth");
 const { createRoom, listRoomsForUser, getMovieById } = require("../../../lib/db");
-const { extractYouTubeId } = require("../../../lib/youtube");
+const { resolveMediaInput } = require("../../../lib/media");
 
 function requireUser() {
   const token = cookies().get("wt_session")?.value;
@@ -49,32 +49,16 @@ export async function POST(req) {
     });
   } else {
     if (!videoUrl?.trim()) return NextResponse.json({ error: "Paste a video URL" }, { status: 400 });
-    const youtubeId = extractYouTubeId(videoUrl.trim());
-    if (youtubeId) {
-      let videoTitle = null;
-      try {
-        const oembedRes = await fetch(
-          `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${youtubeId}`)}&format=json`
-        );
-        if (oembedRes.ok) videoTitle = (await oembedRes.json()).title || null;
-      } catch {}
-      room = await createRoom({
-        name: name.trim(),
-        videoUrl: youtubeId,
-        videoTitle,
-        videoSource: "youtube",
-        maxParticipants: cap,
-        hostId: payload.userId,
-      });
-    } else {
-      room = await createRoom({
-        name: name.trim(),
-        videoUrl: videoUrl.trim(),
-        videoSource: "url",
-        maxParticipants: cap,
-        hostId: payload.userId,
-      });
-    }
+    const resolved = await resolveMediaInput(videoUrl.trim());
+    if (!resolved) return NextResponse.json({ error: "Use a YouTube, Google Drive, or direct video URL" }, { status: 400 });
+    room = await createRoom({
+      name: name.trim(),
+      videoUrl: resolved.videoUrl,
+      videoTitle: resolved.videoTitle,
+      videoSource: resolved.videoSource,
+      maxParticipants: cap,
+      hostId: payload.userId,
+    });
   }
 
   return NextResponse.json({ room });

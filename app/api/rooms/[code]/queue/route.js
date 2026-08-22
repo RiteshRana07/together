@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 const { verifyToken } = require("../../../../../lib/auth");
 const { getRoomByCode, addRoomQueueItem, listRoomQueue, removeRoomQueueItem } = require("../../../../../lib/db");
-const { extractYouTubeId } = require("../../../../../lib/youtube");
+const { resolveMediaInput } = require("../../../../../lib/media");
 const { isPCloudRef, signDownload } = require("../../../../../lib/pcloud");
 const pusher = require("../../../../../lib/pusher");
 
@@ -12,22 +12,7 @@ function requireUser() {
 }
 
 async function resolveVideo(videoUrl) {
-  const url = String(videoUrl || "").trim();
-  const youtubeId = extractYouTubeId(url);
-  if (youtubeId) {
-    let title = null;
-    try {
-      const response = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${youtubeId}`)}&format=json`);
-      if (response.ok) title = (await response.json()).title || null;
-    } catch {}
-    return { videoUrl: youtubeId, videoTitle: title, videoSource: "youtube", movieId: null };
-  }
-  try {
-    new URL(url);
-  } catch {
-    return null;
-  }
-  return { videoUrl: url, videoTitle: null, videoSource: "url", movieId: null };
+  return resolveMediaInput(videoUrl);
 }
 
 export async function GET(req, { params }) {
@@ -39,7 +24,7 @@ export async function GET(req, { params }) {
   const queue = await listRoomQueue(code);
   const playableQueue = await Promise.all(queue.map(async (item) => ({
     ...item,
-    playable_video_url: isPCloudRef(item.video_url) ? `/api/storage/stream?room=${encodeURIComponent(code)}` : item.video_url,
+    playable_video_url: isPCloudRef(item.video_url) ? `/api/storage/stream?room=${encodeURIComponent(code)}&v=${encodeURIComponent(item.video_url)}` : item.video_url,
   })));
   return NextResponse.json({ queue: playableQueue });
 }
@@ -53,7 +38,7 @@ export async function POST(req, { params }) {
 
   const { videoUrl } = await req.json();
   const resolved = await resolveVideo(videoUrl);
-  if (!resolved) return NextResponse.json({ error: "Enter a valid YouTube or video URL" }, { status: 400 });
+  if (!resolved) return NextResponse.json({ error: "Enter a valid YouTube, Google Drive, or direct video URL" }, { status: 400 });
 
   const item = await addRoomQueueItem({ code, addedBy: user.userId, ...resolved });
   await pusher.trigger(`presence-room-${code}`, "room:queue-changed", {});

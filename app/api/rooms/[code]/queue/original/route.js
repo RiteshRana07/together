@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 const { verifyToken } = require("../../../../../../lib/auth");
-const { restoreOriginalRoomVideo } = require("../../../../../../lib/db");
+const { restoreOriginalRoomVideo, updateRoomPlaybackState } = require("../../../../../../lib/db");
 const { isPCloudRef } = require("../../../../../../lib/pcloud");
 const pusher = require("../../../../../../lib/pusher");
 
@@ -15,19 +15,20 @@ export async function POST(req, { params }) {
   if (result.error) return NextResponse.json({ error: result.error }, { status: 403 });
 
   const room = result.room;
+  await updateRoomPlaybackState(code, user.userId, { time: 0, playing: true });
   const rawVideoUrl = room.current_video_url || room.video_url;
   const playableVideoUrl = isPCloudRef(rawVideoUrl)
     ? `/api/storage/stream?room=${encodeURIComponent(code)}&v=${encodeURIComponent(rawVideoUrl)}`
     : rawVideoUrl;
 
-  await pusher.trigger(`presence-room-${code}`, "room:video-changed", {
+  try{await pusher.trigger(`presence-room-${code}`, "room:video-changed", {
     videoUrl: playableVideoUrl,
     videoRef: room.current_video_url || room.video_url,
     videoTitle: room.current_video_title || room.video_title,
     videoSource: room.current_video_source || room.video_source,
     originalVideoUrl: room.original_video_url,
     autoplay: true,
-  });
+  });}catch(error){console.warn("[queue] realtime publish unavailable",error?.message||error)}
 
   return NextResponse.json({ ok: true, room, playableVideoUrl, videoRef: room.current_video_url || room.video_url });
 }
