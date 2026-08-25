@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -233,6 +234,48 @@ async function uploadToPCloud(
   }
 
   return finalized;
+}
+
+function isPCloudRef(value) {
+  return typeof value === "string" && value.startsWith("pcloud:");
+}
+
+function LibraryVideo({ movie }) {
+  const [src, setSrc] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const retryRef = useRef(0);
+
+  const resolve = async () => {
+    if (!movie) return;
+    const ref = movie.storage_ref || movie.video_url || "";
+    if (!isPCloudRef(ref)) {
+      setSrc(movie.video_url || "");
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setFailed(false);
+    try {
+      const response = await fetch(`/api/storage/playback-url?movieId=${encodeURIComponent(movie.id)}&_=${Date.now()}`, { cache: "no-store", credentials: "include" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.url) throw new Error(data.error || `Playback URL unavailable (HTTP ${response.status})`);
+      setSrc(data.url);
+      setLoading(false);
+    } catch (error) {
+      console.error("[library] playback URL failed:", error);
+      setLoading(false);
+      setFailed(true);
+    }
+  };
+
+  useEffect(() => { retryRef.current = 0; resolve(); }, [movie?.id, movie?.storage_ref, movie?.video_url]);
+
+  return <div className="aspect-video bg-black relative">
+    <video className="w-full h-full object-contain" controls preload="metadata" playsInline referrerPolicy="no-referrer" src={src || undefined} onError={async () => { if (retryRef.current >= 1) { setFailed(true); return; } retryRef.current += 1; await resolve(); }}>Your browser does not support video playback.</video>
+    {loading && <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs text-white/45">Loading video…</div>}
+    {failed && <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/75 px-4 text-center"><p className="text-xs text-red-200">Video preview could not be loaded.</p><button type="button" onClick={() => { retryRef.current = 0; resolve(); }} className="wt-button wt-button-primary !py-2 !px-4">Retry video</button></div>}
+  </div>;
 }
 
 /* =========================================================
@@ -736,7 +779,7 @@ export default function LibraryPage() {
         <div className="grid sm:grid-cols-3 gap-4 mb-5"><div className="wt-card p-5"><p className="eyebrow">VIDEOS</p><p className="text-3xl font-semibold mt-4">{movies?.length||0}</p><p className="text-xs text-white/30 mt-1">ready to screen</p></div><div className="wt-card p-5"><p className="eyebrow">STORAGE</p><p className="text-3xl font-semibold mt-4">pCloud</p><p className="text-xs text-white/30 mt-1">direct browser upload</p></div><div className="wt-card p-5"><p className="eyebrow">NEXT STEP</p><p className="text-sm font-medium mt-5">Pick a video → create a room.</p><p className="text-xs text-white/30 mt-1">Playback stays outside the app server.</p></div></div>
         {success&&<div className="mb-5 rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">{success}</div>}
         {showForm&&<form onSubmit={handleUpload} className="wt-card p-6 mb-6 grid lg:grid-cols-[1fr_1fr_auto] gap-4 items-end"><div><label className="text-xs uppercase tracking-[.18em] text-white/40">Movie title</label><input className="wt-input mt-2" placeholder="My movie night" value={title} disabled={busy} onChange={e=>setTitle(e.target.value)}/></div><div><label className="text-xs uppercase tracking-[.18em] text-white/40">Video file</label><input type="file" accept="video/mp4,video/webm,video/ogg,video/quicktime,video/x-matroska" disabled={busy} onChange={e=>setFile(e.target.files?.[0]||null)} className="wt-input mt-2 text-sm"/></div><button type="submit" disabled={busy||!file||!title.trim()} className="wt-button wt-button-primary">{busy?`Uploading ${Math.round(progressPercent)}%`:'Add to library'}</button>{file&&busy&&<div className="lg:col-span-3"><div className="flex justify-between text-xs text-white/35 mb-2"><span>Uploading directly to pCloud</span><span>{formatMB(progressBytes)} / {formatMB(file.size)} MB</span></div><div className="h-1.5 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-[#d95b55]" style={{width:`${progressPercent}%`}}/></div></div>}{error&&<div className="lg:col-span-3 rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-300">{error}</div>}</form>}
-        {movies===undefined?<div className="wt-card p-16 text-center text-white/30">Loading your shelf…</div>:movies.length===0?<div className="wt-card p-16 text-center"><div className="brand-mark mx-auto">V</div><h2 className="font-display text-4xl mt-5">Nothing on the shelves yet.</h2><p className="text-sm text-white/35 mt-2">Upload your first video to make it available for a private room.</p></div>:<div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{movies.map(movie=><article key={movie.id} className="wt-card overflow-hidden group"><div className="aspect-video bg-black"><video className="w-full h-full object-contain" controls preload="metadata" playsInline referrerPolicy="no-referrer" src={movie.video_url} onError={async e=>{if(e.currentTarget.dataset.retry==='1')return;e.currentTarget.dataset.retry='1';const u=await refreshMoviePlayback(movie.id);if(u)e.currentTarget.src=u}}>Your browser does not support video playback.</video></div><div className="p-5"><div className="flex justify-between gap-3"><div className="min-w-0"><p className="font-medium truncate" title={movie.title}>{movie.title}</p><p className="text-xs text-white/30 mt-1">Ready for a watch room</p></div><span className="status-pill">LIBRARY</span></div><div className="flex gap-2 mt-5"><Link href={`/rooms/create?movieId=${encodeURIComponent(movie.id)}`} className="wt-button wt-button-primary flex-1 text-center !py-2">Use in room</Link><button onClick={()=>handleDelete(movie.id)} className="wt-button wt-button-ghost !py-2">Remove</button></div></div></article>)}</div>}
+        {movies===undefined?<div className="wt-card p-16 text-center text-white/30">Loading your shelf…</div>:movies.length===0?<div className="wt-card p-16 text-center"><div className="brand-mark mx-auto">V</div><h2 className="font-display text-4xl mt-5">Nothing on the shelves yet.</h2><p className="text-sm text-white/35 mt-2">Upload your first video to make it available for a private room.</p></div>:<div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{movies.map(movie=><article key={movie.id} className="wt-card overflow-hidden group"><LibraryVideo movie={movie}/><div className="p-5"><div className="flex justify-between gap-3"><div className="min-w-0"><p className="font-medium truncate" title={movie.title}>{movie.title}</p><p className="text-xs text-white/30 mt-1">Ready for a watch room</p></div><span className="status-pill">LIBRARY</span></div><div className="flex gap-2 mt-5"><Link href={`/rooms/create?movieId=${encodeURIComponent(movie.id)}`} className="wt-button wt-button-primary flex-1 text-center !py-2">Use in room</Link><button onClick={()=>handleDelete(movie.id)} className="wt-button wt-button-ghost !py-2">Remove</button></div></div></article>)}</div>}
       </div>
     </main>
   );

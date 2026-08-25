@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 const { verifyToken } = require("../../../../lib/auth");
-const { isPCloudRef } = require("../../../../lib/pcloud");
+const { isPCloudRef, getPlayableVideoLink, fileIdFromRef } = require("../../../../lib/pcloud");
 const { getMovieById } = require("../../../../lib/db");
 
 export const runtime = "nodejs";
@@ -17,10 +17,15 @@ export async function POST(request) {
     const movie = await getMovieById(movieId, user.userId);
     if (!movie) return NextResponse.json({ error: "Movie not found" }, { status: 404 });
 
+    const url = isPCloudRef(movie.video_url)
+      ? await getPlayableVideoLink(fileIdFromRef(movie.video_url))
+      : movie.video_url;
+
     return NextResponse.json({
-      url: isPCloudRef(movie.video_url)
-        ? `/api/storage/stream?movieId=${encodeURIComponent(movie.id)}`
-        : movie.video_url,
+      url,
+      expiresAt: Date.now() + 4 * 60 * 1000,
+    }, {
+      headers: { "Cache-Control": "private, no-store, max-age=0" },
     });
   } catch (error) {
     console.error("[pcloud download-url]", error);
