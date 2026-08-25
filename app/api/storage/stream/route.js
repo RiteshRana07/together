@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 const { verifyToken } = require("../../../../lib/auth");
 const { getMovieById, getRoomByCode, isActiveRoomMember } = require("../../../../lib/db");
-const { isPCloudRef, fileIdFromRef, getFileLink } = require("../../../../lib/pcloud");
+const { isPCloudRef, fileIdFromRef, getPublicVideoLink } = require("../../../../lib/pcloud");
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,7 +71,7 @@ export async function GET(request) {
     // stream the bytes directly from pCloud. The browser follows the redirect
     // for range requests as well, avoiding the lag caused by Railway acting as
     // a video proxy.
-    const upstreamUrl = await getFileLink(fileId);
+    const upstreamUrl = await getPublicVideoLink(fileId);
     return NextResponse.redirect(upstreamUrl, {
       status: 302,
       headers: {
