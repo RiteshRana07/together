@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 const { verifyToken } = require("../../../../lib/auth");
-const { getMovieById, getRoomByCode } = require("../../../../lib/db");
+const { getMovieById, getRoomByCode, isActiveRoomMember } = require("../../../../lib/db");
 const { isPCloudRef, fileIdFromRef, getFileLink } = require("../../../../lib/pcloud");
 
 export const runtime = "nodejs";
@@ -33,13 +33,13 @@ async function resolveStorageRef(requestUrl) {
   }
 
   if (roomCode) {
-    const room = await getRoomByCode(roomCode.toUpperCase());
+    const code = roomCode.toUpperCase();
+    const room = await getRoomByCode(code);
     if (!room) return { error: "Room not found", status: 404 };
 
-    // When switching videos in a live room, the browser can request the new
-    // source before every client has re-read the room row. The v parameter is
-    // the exact pCloud reference selected by the host, so prefer it when it is
-    // a valid pCloud reference. This removes the old-source race completely.
+    const allowed = room.host_id === user.userId || await isActiveRoomMember(code, user.userId);
+    if (!allowed) return { error: "You must join the room before playing its video", status: 403 };
+
     const requestedRef = parsed.searchParams.get("v");
     const ref = requestedRef && isPCloudRef(requestedRef)
       ? requestedRef
@@ -58,61 +58,25 @@ export async function GET(request) {
   try {
     const resolved = await resolveStorageRef(request.url);
     if (resolved.error) {
-      return NextResponse.json(
-        { error: resolved.error },
-        { status: resolved.status }
-      );
+      return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }
 
     const fileId = fileIdFromRef(resolved.ref);
     if (!fileId) {
-      return NextResponse.json(
-        { error: "Invalid pCloud storage reference" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid pCloud storage reference" }, { status: 400 });
     }
 
-    // The browser never talks directly to pCloud. Railway obtains a fresh
-    // pCloud content URL for every range request and proxies the bytes back.
-    // This makes playback same-origin and reliable across browsers/devices.
+    // Do not proxy multi-GB video through Railway. Authenticate the request
+    // here, obtain a short-lived pCloud content URL, then let the browser
+    // stream the bytes directly from pCloud. The browser follows the redirect
+    // for range requests as well, avoiding the lag caused by Railway acting as
+    // a video proxy.
     const upstreamUrl = await getFileLink(fileId);
-    const range = request.headers.get("range");
-    const upstreamHeaders = {};
-    if (range) upstreamHeaders.Range = range;
-
-    const upstream = await fetch(upstreamUrl, {
-      method: "GET",
-      headers: upstreamHeaders,
-      cache: "no-store",
-      redirect: "follow",
-    });
-
-    if (!upstream.ok && upstream.status !== 206) {
-      const error = new Error(`pCloud video stream failed (${upstream.status})`);
-      error.code = upstream.status;
-      throw error;
-    }
-
-    const headers = new Headers();
-    for (const name of [
-      "content-type",
-      "content-length",
-      "content-range",
-      "accept-ranges",
-      "etag",
-      "last-modified",
-    ]) {
-      const value = upstream.headers.get(name);
-      if (value) headers.set(name, value);
-    }
-
-    if (!headers.has("accept-ranges")) headers.set("accept-ranges", "bytes");
-    if (!headers.has("content-type")) headers.set("content-type", "video/mp4");
-    headers.set("Cache-Control", "private, no-store, max-age=0");
-
-    return new Response(upstream.body, {
-      status: upstream.status,
-      headers,
+    return NextResponse.redirect(upstreamUrl, {
+      status: 302,
+      headers: {
+        "Cache-Control": "private, no-store, max-age=0",
+      },
     });
   } catch (error) {
     console.error("[storage stream]", error);

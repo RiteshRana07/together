@@ -62,12 +62,11 @@ export default function RoomPage({params}){
  }
  async function resolveRoomPlayback(ref, fallbackUrl, cancelledRef){
    if(!isPCloudRef(ref)) return fallbackUrl||ref||'';
-   try{
-     const r=await fetch(`/api/storage/playback-url?room=${encodeURIComponent(code)}&v=${encodeURIComponent(ref)}`,{cache:'no-store'});
-     const d=await r.json().catch(()=>({}));
-     if(r.ok&&d.url) return d.url;
-   }catch{}
-   return fallbackUrl||`/api/storage/stream?room=${encodeURIComponent(code)}&v=${encodeURIComponent(ref)}`;
+   // Never block the room UI on pCloud public-link creation. The stream route
+   // authenticates the room member and immediately redirects the browser to a
+   // fresh pCloud content URL, so the video can start without a long
+   // “Preparing the video stream…” state.
+   return `/api/storage/stream?room=${encodeURIComponent(code)}&v=${encodeURIComponent(ref)}`;
  }
  useEffect(()=>{if(!user||!room||joinState!=='joined')return;let cancelled=false;let p=null,name=`presence-room-${code}`,ch=null,onConnected=null;try{ 
 p=getPusherClient();onConnected=()=>setSocketId(p.connection.socket_id);p.connection.bind('connected',onConnected);if(p.connection.state==='connected')onConnected();ch=p.subscribe(name);ch.bind('pusher:subscription_succeeded',m=>{const list=[];m.each(x=>list.push({id:x.id,username:x.info.username,isHost:!!x.info.isHost}));if(!cancelled&&list.length)setParticipants(list)});ch.bind('pusher:member_added',m=>setParticipants(x=>x.some(q=>String(q.id)===String(m.id))?x:[...x,{id:m.id,username:m.info?.username||'Guest',isHost:!!m.info?.isHost}]));ch.bind('pusher:member_removed',m=>setParticipants(x=>x.filter(q=>String(q.id)!==String(m.id))));ch.bind('pusher:subscription_error',()=>setJoinError('Realtime connection unavailable. The room is using database sync.'));ch.bind('room:video-changed',async d=>{const ref=d.videoRef||d.videoUrl||'';const url=await resolveRoomPlayback(ref,d.videoUrl,cancelled);if(cancelled)return;setAutoplay(!!d.autoplay);setPlaybackReady(false);setRoom(r=>r?({...r,current_video_url:ref,current_video_title:d.videoTitle||r.current_video_title,current_video_source:d.videoSource||r.current_video_source,playback_time:0,playback_playing:!!d.autoplay,playback_updated_at:Date.now()}):r);setPlayback({url,title:d.videoTitle||'',source:d.videoSource||'',ref,version:Date.now(),time:0,playing:!!d.autoplay,updatedAt:Date.now()});setPlaybackReady(true)});ch.bind('room:capacity-changed',d=>setRoom(r=>({...r,max_participants:d.maxParticipants})));setChannel(ch)}catch(error){setJoinError('Realtime service unavailable. The room is using database sync.')}return()=>{cancelled=true;try{if(p){p.unsubscribe(name);if(onConnected)p.connection.unbind('connected',onConnected)}}catch{}setChannel(null)}},[user?.id,room?.id,code,joinState]);

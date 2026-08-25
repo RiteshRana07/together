@@ -187,3 +187,8 @@ html[data-wt-theme="noir"] .wt-card{border-color:rgba(190,198,208,.08)}html[data
  .wt-route-wash,.wt-route-frame .wt-page,.wt-motion-item,.wt-button,.wt-card-hover,.cin-stat,.cin-step,.cin-room-row,.cin-private-card,.cin-next-card,.history-item,.theme-card,.nav-link,.brand-mark,.avatar,.icon-button,.wt-input,.account-menu,.settings-tab,.notice-row,.notice-icon,.source-tab,.wt-modal,.call-tile,.cin-empty,.notice-loading,.history-loading{animation:none!important;transition:none!important;transform:none!important}
  .wt-motion-item{opacity:1!important}
 }
+
+
+.settings-danger-zone{margin-top:1.5rem;border:1px solid rgba(239,68,68,.22);border-radius:18px;padding:1.25rem;background:rgba(127,29,29,.08)}
+.settings-danger-zone .settings-section-head{margin-bottom:1rem}
+.settings-danger-zone h2{color:#f4e9e5}
