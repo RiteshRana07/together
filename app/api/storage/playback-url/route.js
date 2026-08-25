@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 const { verifyToken } = require("../../../../lib/auth");
 const { getRoomByCode, isActiveRoomMember } = require("../../../../lib/db");
-const { isPCloudRef, fileIdFromRef, getPublicVideoLink } = require("../../../../lib/pcloud");
+const { isPCloudRef, fileIdFromRef, getFileLink } = require("../../../../lib/pcloud");
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +37,7 @@ export async function GET(request) {
     const fileId = fileIdFromRef(ref);
     if (!fileId) return NextResponse.json({ error: "Invalid pCloud reference" }, { status: 400 });
 
-    const url = await getPublicVideoLink(fileId);
+    const url = await getFileLink(fileId);
     return NextResponse.json({ ok: true, url, source: "pcloud-direct" }, {
       headers: { "Cache-Control": "private, max-age=60" },
     });
