@@ -270,7 +270,7 @@ function LibraryVideo({ movie }) {
   useEffect(() => { retryRef.current = 0; resolve(); }, [movie?.id, movie?.storage_ref, movie?.video_url]);
 
   return <div className="aspect-video bg-black relative">
-    <video className="w-full h-full object-contain" controls preload="metadata" playsInline referrerPolicy="no-referrer" src={src || undefined} onError={async () => { if (retryRef.current >= 1) { setFailed(true); return; } retryRef.current += 1; await resolve(); }}>Your browser does not support video playback.</video>
+    <video className="w-full h-full object-contain" controls preload="metadata" playsInline src={src || undefined} onError={async () => { if (retryRef.current >= 1) { setFailed(true); return; } retryRef.current += 1; await resolve(); }}>Your browser does not support video playback.</video>
     {loading && <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs text-white/45">Loading video…</div>}
     {failed && <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/75 px-4 text-center"><p className="text-xs text-red-200">Video preview could not be loaded.</p><button type="button" onClick={() => { retryRef.current = 0; resolve(); }} className="wt-button wt-button-primary !py-2 !px-4">Retry video</button></div>}
   </div>;

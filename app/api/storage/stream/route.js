@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 const { verifyToken } = require("../../../../lib/auth");
 const { getMovieById, getRoomByCode, isActiveRoomMember } = require("../../../../lib/db");
-const { isPCloudRef, fileIdFromRef, getFreshPlayableVideoLink, getPlayableVideoSource } = require("../../../../lib/pcloud");
+const { isPCloudRef, fileIdFromRef, getFreshFileLink, getFreshPlayableVideoLink } = require("../../../../lib/pcloud");
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,42 +43,59 @@ async function resolveStorageRef(requestUrl) {
   return { ref };
 }
 
-function copyHeader(headers, name, out) {
-  const value = headers.get(name);
-  if (value) out.set(name, value);
-}
-
-function parseRange(range) {
-  if (!range) return null;
-  const m = /^bytes=(\d+)-(\d*)$/i.exec(range.trim());
+function parseRange(value) {
+  if (!value) return null;
+  const m = /^bytes=(\d+)-(\d*)$/i.exec(String(value).trim());
   if (!m) return null;
-  return { start: Number(m[1]), end: m[2] === "" ? null : Number(m[2]) };
+  const start = Number(m[1]);
+  const end = m[2] === "" ? null : Number(m[2]);
+  if (!Number.isSafeInteger(start) || (end !== null && !Number.isSafeInteger(end)) || (end !== null && end < start)) return null;
+  return { start, end };
 }
 
-async function fetchPCloud(url, range, method) {
+function copyIfPresent(source, target, name) {
+  const value = source.get(name);
+  if (value) target.set(name, value);
+}
+
+async function fetchPCloud(url, range, method = "GET") {
   const headers = {
     Accept: "video/mp4,video/*;q=0.9,*/*;q=0.8",
     "Accept-Encoding": "identity",
-    // pCloud documents that its generated media links are restricted by
-    // referrer. Keep this server-side so the browser never has to send a
-    // pCloud referrer or expose the temporary content URL.
+    // pCloud's API docs restrict the API methods themselves to pcloud.com,
+    // while the generated content URL is fetched here server-side. Keeping
+    // this referrer on the server avoids exposing the temporary URL to Chrome.
     Referer: "https://my.pcloud.com/",
     Origin: "https://my.pcloud.com",
-    "User-Agent": "Mozilla/5.0 (WatchTogether media proxy)",
+    "User-Agent": "WatchTogether/43",
   };
-  if (range) headers.Range = range;
-  return fetch(url, { method, headers, redirect: "follow", cache: "no-store" });
+  if (range) headers.Range = `bytes=${range.start}-${range.end === null ? "" : range.end}`;
+  return fetch(url, {
+    method,
+    headers,
+    redirect: "follow",
+    cache: "no-store",
+  });
 }
 
-async function getFreshSource(fileId) {
-  // Prefer an explicitly browser-compatible MP4 variant. pCloud's
-  // getvideolinks returns codec metadata; never silently choose an unknown
-  // codec just because it is the largest variant.
-  if (typeof getPlayableVideoSource === "function") {
-    const source = await getPlayableVideoSource(fileId);
-    if (source?.url) return source;
-  }
-  return { url: await getFreshPlayableVideoLink(fileId), codec: "unknown" };
+async function makeSource(fileId, transcoded = false) {
+  if (transcoded) return getFreshPlayableVideoLink(fileId);
+  return getFreshFileLink(fileId);
+}
+
+function responseHeaders(upstream, range) {
+  const h = new Headers();
+  const type = upstream.headers.get("content-type") || "video/mp4";
+  h.set("Content-Type", type.split(";")[0]);
+  copyIfPresent(upstream.headers, h, "etag");
+  copyIfPresent(upstream.headers, h, "last-modified");
+  copyIfPresent(upstream.headers, h, "content-range");
+  h.set("Accept-Ranges", "bytes");
+  h.set("Content-Disposition", "inline");
+  h.set("Cache-Control", "private, no-store, max-age=0, must-revalidate");
+  h.set("Pragma", "no-cache");
+  h.set("X-Content-Type-Options", "nosniff");
+  return h;
 }
 
 async function stream(request) {
@@ -88,66 +105,92 @@ async function stream(request) {
   const fileId = fileIdFromRef(resolved.ref);
   if (!fileId) return NextResponse.json({ error: "Invalid pCloud storage reference" }, { status: 400 });
 
-  const range = request.headers.get("range");
-  const requested = parseRange(range);
+  const range = parseRange(request.headers.get("range"));
   const method = request.method === "HEAD" ? "HEAD" : "GET";
-  let source = await getFreshSource(fileId);
-  let upstream = await fetchPCloud(source.url, range, method);
 
-  // pCloud links are temporary. Refresh the link, but preserve the browser's
-  // original Range request so media seeking remains correct.
-  if (upstream.status === 403 || upstream.status === 404 || upstream.status === 410) {
-    source = await getFreshSource(fileId);
-    upstream = await fetchPCloud(source.url, range, method);
+  // IMPORTANT: use a fresh ORIGINAL file link first. This is the same pCloud
+  // file that works in the user's localhost v34 build. We only fall back to
+  // the transcoded getvideolinks variant if the original content cannot be
+  // fetched or is not a playable response.
+  let transcoded = false;
+  let source = await makeSource(fileId, false);
+  let upstream = await fetchPCloud(source, range, method);
+
+  if ([403, 404, 410].includes(upstream.status)) {
+    source = await makeSource(fileId, false);
+    upstream = await fetchPCloud(source, range, method);
+  }
+
+  // If the original file is unavailable as a media response, try pCloud's
+  // transcoded H.264/AAC/MP3 variant once.
+  if (![200, 206].includes(upstream.status)) {
+    transcoded = true;
+    source = await makeSource(fileId, true);
+    upstream = await fetchPCloud(source, range, method);
   }
 
   if (![200, 206].includes(upstream.status)) {
     const text = await upstream.text().catch(() => "");
-    console.error("[storage stream] pCloud upstream failure", upstream.status, text.slice(0, 500));
+    console.error("[storage stream] pCloud failure", {
+      status: upstream.status,
+      fileId: String(fileId),
+      range: request.headers.get("range") || null,
+      body: text.slice(0, 400),
+    });
     return NextResponse.json({ error: `pCloud video server returned ${upstream.status}` }, { status: 502 });
   }
 
-  const out = new Headers();
-  copyHeader(upstream.headers, "content-type", out);
-  copyHeader(upstream.headers, "etag", out);
-  copyHeader(upstream.headers, "last-modified", out);
-  out.set("Accept-Ranges", "bytes");
-  out.set("Cache-Control", "private, no-store, max-age=0");
-  out.set("X-Content-Type-Options", "nosniff");
-  out.set("Content-Disposition", "inline");
-  out.set("X-WatchTogether-Video-Codec", String(source.codec || "unknown"));
-
-  // Chrome/Edge will reject an invalid 206 response. Some pCloud content
-  // servers have returned 206 without a Content-Range header. Preserve a
-  // valid upstream Content-Range when present; otherwise fail clearly rather
-  // than handing the browser a malformed media response.
-  const upstreamRange = upstream.headers.get("content-range");
-  if (upstream.status === 206 && !upstreamRange) {
-    const length = Number(upstream.headers.get("content-length") || 0);
-    if (requested && Number.isFinite(length) && length > 0) {
-      const end = requested.end == null ? requested.start + length - 1 : requested.end;
-      out.set("Content-Range", `bytes ${requested.start}-${end}/*`);
-    } else {
-      console.error("[storage stream] pCloud returned 206 without Content-Range");
-      return NextResponse.json({ error: "pCloud returned an invalid partial video response" }, { status: 502 });
-    }
-  } else if (upstreamRange) {
-    out.set("Content-Range", upstreamRange);
+  // HEAD: return metadata without consuming a media body.
+  if (method === "HEAD") {
+    const headers = responseHeaders(upstream, range);
+    const contentLength = upstream.headers.get("content-length");
+    if (contentLength) headers.set("Content-Length", contentLength);
+    return new Response(null, { status: upstream.status, headers });
   }
 
-  const contentLength = upstream.headers.get("content-length");
-  if (contentLength) out.set("Content-Length", contentLength);
+  const headers = responseHeaders(upstream, range);
+  const upstreamRange = upstream.headers.get("content-range");
+  const upstreamLength = Number(upstream.headers.get("content-length") || 0);
 
-  // A media response must not be compressed by the application layer. The
-  // upstream request explicitly asked for identity encoding; make the
-  // response explicit as well so Chrome can consume byte ranges reliably.
-  out.set("Content-Encoding", "identity");
-  out.set("X-Accel-Buffering", "no");
+  // Browser media elements are strict about 206 responses. If pCloud omitted
+  // Content-Range, reconstruct it only when the requested range and response
+  // length make the result unambiguous.
+  if (upstream.status === 206 && !upstreamRange && range && upstreamLength > 0) {
+    const end = range.end === null ? range.start + upstreamLength - 1 : range.end;
+    headers.set("Content-Range", `bytes ${range.start}-${end}/*`);
+  }
 
-  return new Response(method === "HEAD" ? null : upstream.body, {
-    status: upstream.status,
-    headers: out,
-  });
+  if (upstreamRange) headers.set("Content-Range", upstreamRange);
+  if (upstreamLength > 0) headers.set("Content-Length", String(upstreamLength));
+
+  // For ranged requests, buffer only that requested chunk before returning it.
+  // This avoids Railway/Next altering a chunked upstream stream and guarantees
+  // that Content-Length exactly matches the bytes Chrome receives. Typical
+  // browser video ranges are small (hundreds of KB to a few MB).
+  if (range) {
+    const bytes = new Uint8Array(await upstream.arrayBuffer());
+    let body = bytes;
+    let status = upstream.status;
+
+    // Some upstream servers can ignore Range and answer 200. If the returned
+    // body is the complete file and the requested start is non-zero, slice the
+    // requested bytes. Never attempt to slice an enormous response blindly.
+    if (status === 200 && range.start > 0) {
+      if (bytes.byteLength > 64 * 1024 * 1024) {
+        return NextResponse.json({ error: "pCloud ignored the requested byte range" }, { status: 502 });
+      }
+      const end = range.end === null ? bytes.byteLength - 1 : Math.min(range.end, bytes.byteLength - 1);
+      body = bytes.slice(range.start, end + 1);
+      status = 206;
+      headers.set("Content-Range", `bytes ${range.start}-${range.start + body.byteLength - 1}/${bytes.byteLength}`);
+    }
+
+    headers.set("Content-Length", String(body.byteLength));
+    return new Response(body, { status, headers });
+  }
+
+  // Non-range requests can be streamed without buffering the whole movie.
+  return new Response(upstream.body, { status: upstream.status, headers });
 }
 
 export async function GET(request) {
