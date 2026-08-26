@@ -56,7 +56,16 @@ function parseRange(range) {
 }
 
 async function fetchPCloud(url, range, method) {
-  const headers = { Accept: "video/mp4,video/*;q=0.9,*/*;q=0.8", "Accept-Encoding": "identity" };
+  const headers = {
+    Accept: "video/mp4,video/*;q=0.9,*/*;q=0.8",
+    "Accept-Encoding": "identity",
+    // pCloud documents that its generated media links are restricted by
+    // referrer. Keep this server-side so the browser never has to send a
+    // pCloud referrer or expose the temporary content URL.
+    Referer: "https://my.pcloud.com/",
+    Origin: "https://my.pcloud.com",
+    "User-Agent": "Mozilla/5.0 (WatchTogether media proxy)",
+  };
   if (range) headers.Range = range;
   return fetch(url, { method, headers, redirect: "follow", cache: "no-store" });
 }
@@ -128,6 +137,12 @@ async function stream(request) {
 
   const contentLength = upstream.headers.get("content-length");
   if (contentLength) out.set("Content-Length", contentLength);
+
+  // A media response must not be compressed by the application layer. The
+  // upstream request explicitly asked for identity encoding; make the
+  // response explicit as well so Chrome can consume byte ranges reliably.
+  out.set("Content-Encoding", "identity");
+  out.set("X-Accel-Buffering", "no");
 
   return new Response(method === "HEAD" ? null : upstream.body, {
     status: upstream.status,

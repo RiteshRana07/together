@@ -45,18 +45,26 @@ async function resolveRef(requestUrl) {
 
 export async function GET(request) {
   try {
+    const parsed = new URL(request.url);
+    const movieId = parsed.searchParams.get("movieId");
+    const roomCode = parsed.searchParams.get("room");
     const resolved = await resolveRef(request.url);
     if (resolved.error) return NextResponse.json({ error: resolved.error }, { status: resolved.status });
 
     const fileId = fileIdFromRef(resolved.ref);
     if (!fileId) return NextResponse.json({ error: "Invalid pCloud storage reference" }, { status: 400 });
 
-    // Return the short-lived pCloud playback URL directly as JSON. This avoids
-    // a Next.js redirect sitting between the HTML5 video element and pCloud.
-    // getPlayableVideoLink prefers pCloud's H.264/AAC MP4 variants and falls
-    // back to the original file link when transcoded variants are unavailable.
-    const url = await getPlayableVideoLink(fileId);
-    return NextResponse.json({ url, fileId: String(fileId), expiresAt: Date.now() + 4 * 60 * 1000 }, {
+    // Never expose the temporary pCloud content URL to the browser. pCloud's
+    // generated content links are referrer-restricted and short-lived. The
+    // same-origin stream endpoint authenticates the room/library request,
+    // generates a fresh pCloud link, sends the required pCloud referrer
+    // server-side, and forwards HTTP Range responses to the browser.
+    const query = movieId
+      ? `movieId=${encodeURIComponent(movieId)}`
+      : `room=${encodeURIComponent(roomCode)}&v=${encodeURIComponent(resolved.ref)}`;
+    const origin = new URL(requestUrl).origin;
+    const url = `${origin}/api/storage/stream?${query}`;
+    return NextResponse.json({ url, fileId: String(fileId), expiresAt: null }, {
       headers: { "Cache-Control": "private, no-store, max-age=0" },
     });
   } catch (error) {

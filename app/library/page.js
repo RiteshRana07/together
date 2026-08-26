@@ -257,10 +257,8 @@ function LibraryVideo({ movie }) {
     setLoading(true);
     setFailed(false);
     try {
-      const response = await fetch(`/api/storage/playback-url?movieId=${encodeURIComponent(movie.id)}&_=${Date.now()}`, { cache: "no-store", credentials: "include" });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.url) throw new Error(data.error || `Playback URL unavailable (HTTP ${response.status})`);
-      setSrc(data.url);
+      const url = `/api/storage/stream?movieId=${encodeURIComponent(movie.id)}&_=${Date.now()}`;
+      setSrc(url);
       setLoading(false);
     } catch (error) {
       console.error("[library] playback URL failed:", error);
