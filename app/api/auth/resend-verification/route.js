@@ -15,6 +15,6 @@ export async function POST(req) {
 
   const token = createVerificationToken();
   await setVerificationToken(user.id, hashVerificationToken(token), Date.now() + 30 * 60 * 1000);
-  const mail = await sendVerificationEmail({ email: user.email, username: user.username, token });
+  const mail = await sendVerificationEmail({ email: user.email, username: user.username, token, appUrl: new URL(req.url).origin });
   return NextResponse.json({ message: "Verification email sent", emailSent: mail.sent, devVerificationUrl: mail.devUrl || undefined });
 }

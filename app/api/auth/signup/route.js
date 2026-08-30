@@ -20,7 +20,7 @@ export async function POST(req) {
       verificationTokenHash: hashVerificationToken(token),
       verificationExpiresAt: Date.now() + 30 * 60 * 1000,
     });
-    const mail = await sendVerificationEmail({ email: normalizedEmail, username: cleanUsername, token });
+    const mail = await sendVerificationEmail({ email: normalizedEmail, username: cleanUsername, token, appUrl: new URL(req.url).origin });
 
     return NextResponse.json({ user, verificationRequired: true, emailSent: mail.sent, devVerificationUrl: mail.devUrl || undefined });
   } catch (error) {
