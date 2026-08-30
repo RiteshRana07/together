@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 const { createUser, getUserByEmail } = require("../../../../lib/db");
 const { hashPassword, createVerificationToken, hashVerificationToken } = require("../../../../lib/auth");
-const { sendVerificationEmail } = require("../../../../lib/email");
+const { sendVerificationEmail, getPublicAppUrl } = require("../../../../lib/email");
 
 export async function POST(req) {
   try {
@@ -20,7 +20,7 @@ export async function POST(req) {
       verificationTokenHash: hashVerificationToken(token),
       verificationExpiresAt: Date.now() + 30 * 60 * 1000,
     });
-    const mail = await sendVerificationEmail({ email: normalizedEmail, username: cleanUsername, token, appUrl: new URL(req.url).origin });
+    const mail = await sendVerificationEmail({ email: normalizedEmail, username: cleanUsername, token, appUrl: getPublicAppUrl(req) });
 
     return NextResponse.json({ user, verificationRequired: true, emailSent: mail.sent, devVerificationUrl: mail.devUrl || undefined });
   } catch (error) {

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 const { getUserByEmail, setVerificationToken, getUserById } = require("../../../../lib/db");
 const { verifyToken, createVerificationToken, hashVerificationToken } = require("../../../../lib/auth");
-const { sendVerificationEmail } = require("../../../../lib/email");
+const { sendVerificationEmail, getPublicAppUrl } = require("../../../../lib/email");
 
 export async function POST(req) {
   const body = await req.json().catch(() => ({}));
@@ -15,6 +15,6 @@ export async function POST(req) {
 
   const token = createVerificationToken();
   await setVerificationToken(user.id, hashVerificationToken(token), Date.now() + 30 * 60 * 1000);
-  const mail = await sendVerificationEmail({ email: user.email, username: user.username, token, appUrl: new URL(req.url).origin });
+  const mail = await sendVerificationEmail({ email: user.email, username: user.username, token, appUrl: getPublicAppUrl(req) });
   return NextResponse.json({ message: "Verification email sent", emailSent: mail.sent, devVerificationUrl: mail.devUrl || undefined });
 }
