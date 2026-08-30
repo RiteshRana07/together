@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 const { verifyToken, verifyPassword, clearCookie } = require("../../../../lib/auth");
 const { getUserAuthById, listMoviesForUser, deleteUserAccount } = require("../../../../lib/db");
-const { deleteStoredObject } = require("../../../../lib/pcloud");
+const { deleteStoredObject, isPCloudFileMissingError } = require("../../../../lib/pcloud");
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,21 +32,22 @@ export async function DELETE(request) {
       try {
         await deleteStoredObject(movie.video_url);
       } catch (error) {
+        // A missing pCloud object is already effectively deleted. For other
+        // storage failures, do not trap the user account forever: remove the
+        // WatchTogether account and report the cleanup warning to the client.
+        if (isPCloudFileMissingError?.(error)) continue;
         console.error("[account delete] pCloud file delete failed", movie.id, error);
         storageFailures.push(movie.title || movie.id);
       }
     }
 
-    if (storageFailures.length) {
-      return NextResponse.json(
-        { error: "Some library videos could not be removed from storage. Your account was not deleted. Try again after the storage connection is available." },
-        { status: 502 }
-      );
-    }
-
     await deleteUserAccount(payload.userId);
 
-    const response = NextResponse.json({ ok: true });
+    const response = NextResponse.json({
+      ok: true,
+      storageCleanupWarning: storageFailures.length ?
+        "Your WatchTogether account was deleted. Some pCloud files could not be removed because the storage connection was unavailable; remove those files from pCloud if they remain." : null
+    });
     response.headers.set("Set-Cookie", clearCookie());
     return response;
   } catch (error) {
